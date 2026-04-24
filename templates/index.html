@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Summarizer</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>📄 PDF Summarizer</h1>
+
+<form method="POST" enctype="multipart/form-data" onsubmit="showLoader()">
+
+    <input type="file" name="pdf" accept=".pdf" required>
+
+    <select name="mode">
+        <option value="short">Short</option>
+        <option value="medium" selected>Medium</option>
+        <option value="detailed">Detailed</option>
+    </select>
+
+    <button type="submit">Generate Summary</button>
+</form>
+
+<!-- LOADER -->
+<div id="loader" class="hidden">
+    <div class="spinner"></div>
+    <p>Processing... please wait</p>
+</div>
+
+{% if summary %}
+<div class="result">
+    <h2>Summary</h2>
+    <p id="summaryText">{{ summary }}</p>
+
+    <button onclick="copyText()">Copy</button>
+    <a href="/download"><button>Download PDF</button></a>
+</div>
+{% endif %}
+
+</div>
+
+<script>
+function showLoader() {
+    document.getElementById("loader").classList.remove("hidden");
+}
+
+function copyText() {
+    const text = document.getElementById("summaryText").innerText;
+    navigator.clipboard.writeText(text);
+    alert("Copied!");
+}
+</script>
+
+</body>
+</html>

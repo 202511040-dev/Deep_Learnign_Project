@@ -1,0 +1,6 @@
+venv/
+pdf_summarizer_model/
+__pycache__/
+*.pyc
+.vscode/
+.env
