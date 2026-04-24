@@ -1,7 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>PDF Summarizer</title>
+    <title>Smart PDF Summarizer</title>
+
+    <!-- Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="/static/style.css">
 </head>
 
@@ -9,49 +13,124 @@
 
 <div class="container">
 
-<h1>📄 PDF Summarizer</h1>
+<h1>📄 Smart PDF Summarizer</h1>
 
 <form method="POST" enctype="multipart/form-data" onsubmit="showLoader()">
 
-    <input type="file" name="pdf" accept=".pdf" required>
+    <!-- Drag & Drop -->
+    <div id="drop-area">
+        <p>Drag & Drop PDF here or click to upload</p>
+        <input type="file" name="pdf" accept=".pdf" required id="fileInput">
+    </div>
 
+    <p id="fileName"></p>
+
+    <!-- Mode -->
     <select name="mode">
-        <option value="short">Short</option>
-        <option value="medium" selected>Medium</option>
-        <option value="detailed">Detailed</option>
+        <option value="short">Short Summary</option>
+        <option value="medium" selected>Medium Summary</option>
+        <option value="detailed">Detailed Summary</option>
     </select>
 
-    <button type="submit">Generate Summary</button>
+    <button type="submit" id="submitBtn">Generate Summary</button>
 </form>
 
-<!-- LOADER -->
+<!-- Loader -->
 <div id="loader" class="hidden">
     <div class="spinner"></div>
-    <p>Processing... please wait</p>
+    <p>Analyzing document... Generating summary...</p>
 </div>
 
-{% if summary %}
-<div class="result">
-    <h2>Summary</h2>
-    <p id="summaryText">{{ summary }}</p>
+<!-- Empty State -->
+{% if not result %}
+<p class="placeholder">Upload a PDF to generate summary</p>
+{% endif %}
 
-    <button onclick="copyText()">Copy</button>
-    <a href="/download"><button>Download PDF</button></a>
+<!-- Result -->
+{% if result %}
+<div class="result">
+
+    <p class="mode-tag">Mode: {{ request.form.mode }}</p>
+
+    <h2>📌 Title</h2>
+    <p class="title">{{ result.title }}</p>
+
+    <h2>🔑 Key Points</h2>
+    <ul>
+        {% for p in result.points %}
+        <li>{{ p }}</li>
+        {% endfor %}
+    </ul>
+
+    <h2>📝 Summary</h2>
+    <p id="summaryText">{{ result.summary }}</p>
+
+    <div class="buttons">
+        <button onclick="copyText(event)">Copy</button>
+        <a href="/download"><button type="button">Download PDF</button></a>
+    </div>
+
 </div>
 {% endif %}
 
 </div>
 
 <script>
-function showLoader() {
-    document.getElementById("loader").classList.remove("hidden");
+
+// Drag & Drop
+const dropArea = document.getElementById("drop-area");
+const fileInput = document.getElementById("fileInput");
+
+dropArea.addEventListener("click", () => fileInput.click());
+
+dropArea.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropArea.classList.add("highlight");
+});
+
+dropArea.addEventListener("dragleave", () => {
+    dropArea.classList.remove("highlight");
+});
+
+dropArea.addEventListener("drop", (e) => {
+    e.preventDefault();
+    fileInput.files = e.dataTransfer.files;
+    dropArea.classList.remove("highlight");
+    showFileName();
+});
+
+// Show file name
+fileInput.addEventListener("change", showFileName);
+
+function showFileName() {
+    const file = fileInput.files[0];
+    if (file) {
+        document.getElementById("fileName").innerText = file.name;
+    }
 }
 
-function copyText() {
+// Loader + disable button
+function showLoader() {
+    document.getElementById("loader").classList.remove("hidden");
+
+    const btn = document.getElementById("submitBtn");
+    btn.innerText = "Processing...";
+    btn.disabled = true;
+}
+
+// Copy with feedback
+function copyText(event) {
     const text = document.getElementById("summaryText").innerText;
     navigator.clipboard.writeText(text);
-    alert("Copied!");
+
+    const btn = event.target;
+    btn.innerText = "Copied!";
+
+    setTimeout(() => {
+        btn.innerText = "Copy";
+    }, 1500);
 }
+
 </script>
 
 </body>
