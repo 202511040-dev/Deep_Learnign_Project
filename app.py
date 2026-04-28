@@ -1,165 +1,129 @@
-from flask import Flask, render_template, request, send_file
+import gradio as gr
 from transformers import BartForConditionalGeneration, BartTokenizer
 import pdfplumber
-import os
 import torch
+import re
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 import nltk
-from nltk.tokenize import sent_tokenize
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.corpus import stopwords
+import string
 
-try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('tokenizers/punkt_tab')
-except LookupError:
-    nltk.download('punkt')
-    nltk.download('punkt_tab')
 
-app = Flask(__name__)
 
-# ---------------- MODEL ----------------
-MODEL_PATH = "pdf_summarizer_model"
+def setup_nltk():
+    import os
+    nltk_data_path = "/tmp/nltk_data"
+    os.makedirs(nltk_data_path, exist_ok=True)
+    nltk.data.path.append(nltk_data_path)
 
+    resources = ["punkt", "punkt_tab", "stopwords"]
+
+    for r in resources:
+        try:
+            if r == "stopwords":
+                nltk.data.find("corpora/stopwords")
+            else:
+                nltk.data.find(f"tokenizers/{r}")
+        except LookupError:
+            nltk.download(r, download_dir=nltk_data_path)
+
+setup_nltk()
+
+
+MODEL_PATH = "vatsal0025/DL_pdf_summarizer_model"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+print("Loading model...")
 tokenizer = BartTokenizer.from_pretrained(MODEL_PATH)
 model = BartForConditionalGeneration.from_pretrained(MODEL_PATH).to(device)
 
 
-# ---------------- PDF ----------------
-def extract_text_from_pdf(pdf_path):
+# ---------------- FUNCTIONS ----------------
+def extract_text_from_pdf(file):
     text = ""
-    with pdfplumber.open(pdf_path) as pdf:
+    with pdfplumber.open(file) as pdf:
         for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
+            if page.extract_text():
+                text += page.extract_text() + "\n"
     return text
 
 
 def clean_text(text):
-    text = re.sub(r'\[\d+(,\s*\d+)*\]', '', text)  # remove citations [1,2]
-    text = re.sub(r'\(.*?\)', '', text)           # remove brackets (..)
-    text = re.sub(r'http\S+', '', text)           # remove URLs
-    
-    # Remove common academic paper boilerplate that pollutes key points
-    text = re.sub(r'Authorized licensed use limited to:.*?Restrictions apply\.', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'IEEE Xplore\.', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'©.*?IEEE', '', text)
-    text = re.sub(r'in Proc\..*?\d{4}', '', text)
-    text = re.sub(r'\s+', ' ', text)              # normalize spaces
+    text = re.sub(r'\[\d+(,\s*\d+)*\]', '', text)
+    text = re.sub(r'\(.*?\)', '', text)
+    text = re.sub(r'http\S+', '', text)
+
+    # 🔥 FIX BROKEN WORDS
+    text = re.sub(r'([A-Z])([A-Z][a-z])', r'\1 \2', text)
+
+    # 🔥 REMOVE TABLE LINES
+    text = re.sub(r'TABLE\s*\w+.*', '', text)
+
+    text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
-
-# ---------------- CHUNKING ----------------
-def split_by_paragraph(text):
+def adaptive_chunking(text):
     paragraphs = text.split("\n")
     return [p.strip() for p in paragraphs if len(p.strip()) > 50]
 
-def get_dynamic_max_length(text):
-    length = len(text.split())
-    if length < 2000:
-        return 800
-    elif length < 5000:
-        return 900
-    else:
-        return 1000
 
-def adaptive_chunking(text, tokenizer):
-    paragraphs = split_by_paragraph(text)
-    max_tokens = get_dynamic_max_length(text)
-    
-    chunks = []
-    current_chunk = []
-    current_length = 0
-
-    for para in paragraphs:
-        sentences = sent_tokenize(para)
-        for sentence in sentences:
-            sentence_length = len(tokenizer.encode(sentence, add_special_tokens=False))
-            if current_length + sentence_length > max_tokens and current_chunk:
-                chunks.append(" ".join(current_chunk))
-                # smarter overlap
-                overlap_sentences = current_chunk[-2:] if len(current_chunk) >= 2 else current_chunk
-                current_chunk = overlap_sentences
-                current_length = sum(len(tokenizer.encode(s, add_special_tokens=False)) for s in current_chunk)
-
-            current_chunk.append(sentence)
-            current_length += sentence_length
-
-    if current_chunk:
-        chunks.append(" ".join(current_chunk))
-
-    return chunks
-
-
-# ---------------- RANKING ----------------
 def rank_chunks(chunks):
     if not chunks:
         return []
+
     vectorizer = TfidfVectorizer(stop_words='english')
     X = vectorizer.fit_transform(chunks)
     scores = np.sum(X.toarray(), axis=1)
-    
-    # Normalize by chunk length to prevent bias towards longer chunks
-    normalized_scores = []
-    for i, chunk in enumerate(chunks):
-        word_count = len(chunk.split())
-        normalized_score = scores[i] / (word_count + 1e-5)
-        normalized_scores.append(normalized_score)
-        
-    ranked = [(i, c) for _, i, c in sorted(zip(normalized_scores, range(len(chunks)), chunks), reverse=True)]
+
+    ranked = [(i, c) for _, i, c in sorted(zip(scores, range(len(chunks)), chunks), reverse=True)]
     return ranked
 
 
-# ---------------- SELECTION ----------------
 def select_chunks(ranked_chunks, mode):
     total = len(ranked_chunks)
 
     if mode == "short":
-        count = min(3, max(1, int(0.15 * total)))
+        count = max(1, int(0.2 * total))
     elif mode == "detailed":
-        count = min(15, max(5, int(0.6 * total)))
+        count = max(5, int(0.6 * total))
     else:
-        count = min(6, max(3, int(0.25 * total)))
-        
-    top_chunks = ranked_chunks[:count]
-    # Sort by original index to maintain chronological order and coherent meaning
-    top_chunks.sort(key=lambda x: x[0])
-    
-    return [c for i, c in top_chunks]
+        count = max(3, int(0.4 * total))
 
+    selected = ranked_chunks[:count]
+    selected.sort(key=lambda x: x[0])
+    return [c for i, c in selected]
 
-# ---------------- CHUNK SUMMARY ----------------
-def get_summary_params(mode):
-    if mode == "short":
-        return {"max_length": 80, "min_length": 15, "num_beams": 2}
-    elif mode == "detailed":
-        return {"max_length": 250, "min_length": 30, "num_beams": 3}
-    else:  # medium
-        return {"max_length": 150, "min_length": 20, "num_beams": 2}
 
 def summarize_chunks(chunks, mode):
     summaries = []
-    params = get_summary_params(mode)
+
+    params = {
+        "short": (80, 20),
+        "medium": (150, 40),
+        "detailed": (300, 80)
+    }
+
+    max_len, min_len = params[mode]
 
     for chunk in chunks:
-        chunk_text = "summarize: " + chunk
-        inputs = tokenizer(chunk_text, return_tensors="pt", truncation=True, max_length=1024).to(device)
+        inputs = tokenizer("summarize: " + chunk,
+                           return_tensors="pt",
+                           truncation=True,
+                           max_length=1024).to(device)
 
         ids = model.generate(
             inputs["input_ids"],
-            attention_mask=inputs.get("attention_mask"),
-            max_length=params["max_length"],
-            min_length=params["min_length"],
-            num_beams=params["num_beams"],
-            length_penalty=1.5,
-            repetition_penalty=1.5,
-            no_repeat_ngram_size=3,
-            early_stopping=True
+            max_length=max_len,
+            min_length=min_len,
+            num_beams=6,
+            temperature=0.7,
+            top_k=50,
+            repetition_penalty=1.3,
+            no_repeat_ngram_size=3
         )
 
         summaries.append(tokenizer.decode(ids[0], skip_special_tokens=True))
@@ -167,129 +131,119 @@ def summarize_chunks(chunks, mode):
     return summaries
 
 
-# ---------------- CLEANING ----------------
-def remove_redundancy(text):
-    sentences = text.split(".")
-    seen = set()
-    unique = []
-
-    for s in sentences:
-        s = s.strip()
-        if s and s not in seen:
-            seen.add(s)
-            unique.append(s)
-
-    return ". ".join(unique)
-
-
-# ---------------- FINAL REFINEMENT ----------------
 def refine_summary(text, mode):
-    if mode == "short":
-        max_len, min_len, beams = 100, 20, 2
-    elif mode == "detailed":
-        max_len, min_len, beams = 350, 40, 3
-    else:
-        max_len, min_len, beams = 200, 30, 2
 
-    text_input = "summarize: " + text
-    inputs = tokenizer(text_input, return_tensors="pt", truncation=True, max_length=1024).to(device)
+    params = {
+        "short": (120, 40),
+        "medium": (250, 80),
+        "detailed": (400, 120)
+    }
+
+    max_len, min_len = params[mode]
+
+    inputs = tokenizer("summarize: " + text,
+                       return_tensors="pt",
+                       truncation=True,
+                       max_length=1024).to(device)
 
     ids = model.generate(
         inputs["input_ids"],
-        attention_mask=inputs.get("attention_mask"),
         max_length=max_len,
         min_length=min_len,
-        num_beams=beams,
-        length_penalty=1.5,
-        repetition_penalty=1.5,
-        no_repeat_ngram_size=3,
-        early_stopping=True
+        num_beams=6,
+        repetition_penalty=1.2,
+        no_repeat_ngram_size=3
     )
 
     return tokenizer.decode(ids[0], skip_special_tokens=True)
 
 
-# ---------------- TITLE ----------------
 def generate_title(text):
-    text_input = "summarize: " + text
-    inputs = tokenizer(text_input, return_tensors="pt", truncation=True, max_length=512).to(device)
+    inputs = tokenizer("summarize: " + text,
+                       return_tensors="pt",
+                       truncation=True,
+                       max_length=512).to(device)
 
-    ids = model.generate(
-        inputs["input_ids"], 
-        attention_mask=inputs.get("attention_mask"),
-        max_length=20,
-        min_length=5,
-        num_beams=2,
-        early_stopping=True
-    )
-
+    ids = model.generate(inputs["input_ids"], max_length=20)
     return tokenizer.decode(ids[0], skip_special_tokens=True)
 
 
-# ---------------- KEY POINTS ----------------
-def extract_key_points(text, num_points=5):
-    sentences = sent_tokenize(text)
-    if len(sentences) <= num_points:
-        return sentences
 
-    vectorizer = TfidfVectorizer(stop_words='english')
-    try:
-        X = vectorizer.fit_transform(sentences)
-        scores = np.sum(X.toarray(), axis=1)
-        
-        # Normalize by length to prevent bias towards massive sentences
-        normalized_scores = [s / (len(sent.split()) + 1e-5) for s, sent in zip(scores, sentences)]
-        
-        ranked = [s for _, s in sorted(zip(normalized_scores, sentences), reverse=True)]
-        
-        # Filter for sentences with reasonable length for a key point
-        valid_points = [s for s in ranked if 40 < len(s) < 200]
-        if not valid_points:
-            valid_points = ranked
-            
-        return valid_points[:num_points]
-    except ValueError:
+def clean_sentence(s):
+    s = s.strip()
+
+    # ❌ remove table-like or broken text
+    if len(s) > 200:
+        return False
+
+    if any(x in s.lower() for x in [
+        "table", "fig", "figure", "arxiv", "doi", "www", "http"
+    ]):
+        return False
+
+    # ❌ too many uppercase → likely table/caption
+    if sum(1 for c in s if c.isupper()) > len(s) * 0.4:
+        return False
+
+    # ❌ too many numbers → likely data row
+    if sum(c.isdigit() for c in s) > 5:
+        return False
+
+    # ❌ no spaces (broken extraction)
+    if len(s.split()) < 5:
+        return False
+
+    return True
+    
+def extract_key_points_nltk(text, num_points=5):
+
+    sentences = list(set(sent_tokenize(text)))
+
+    # remove weak sentences
+    sentences = [s for s in sentences if clean_sentence(s)]
+
+    words = word_tokenize(text.lower())
+
+    stop_words = set(stopwords.words("english"))
+    words = [w for w in words if w not in stop_words and w not in string.punctuation]
+
+    freq = {}
+    for word in words:
+        freq[word] = freq.get(word, 0) + 1
+
+    if not freq:
         return sentences[:num_points]
 
+    max_freq = max(freq.values())
+    for word in freq:
+        freq[word] /= max_freq
 
-# ---------------- MAIN PIPELINE ----------------
-def advanced_summarization(text, mode):
-    chunks = adaptive_chunking(text, tokenizer)
+    sentence_scores = {}
+    for sent in sentences:
+        for word in word_tokenize(sent.lower()):
+            if word in freq:
+                sentence_scores[sent] = sentence_scores.get(sent, 0) + freq[word]
 
-    ranked = rank_chunks(chunks)
-    selected = select_chunks(ranked, mode)
+    ranked_sentences = sorted(sentence_scores, key=sentence_scores.get, reverse=True)
 
-    chunk_summaries = summarize_chunks(selected, mode)
+    # 🔥 avoid duplicates / similar sentences
+    selected = []
+    for sent in ranked_sentences:
+        if len(selected) >= num_points:
+            break
 
-    # For detailed mode, separate with double newlines for structure
-    if mode == "detailed":
-        combined = "\n\n".join(chunk_summaries)
-        final_summary = combined
-    else:
-        combined = " ".join(chunk_summaries)
-        combined = remove_redundancy(combined)
-        final_summary = refine_summary(combined, mode)
-        final_summary = remove_redundancy(final_summary)
+        if all(sent[:40] not in s for s in selected):
+            selected.append(sent)
 
-    title = generate_title(final_summary)
-    
-    # Extract key points from the original text (selected chunks) to avoid duplication with summary
-    original_text = " ".join(selected)
-    points = extract_key_points(original_text)
-
-    return {
-        "title": title,
-        "summary": final_summary,
-        "points": points
-    }
+    return selected
 
 
-# ---------------- PDF SAVE ----------------
-def save_summary_pdf(text, filename="summary.pdf"):
+def save_pdf(summary_text):
+    filename = "summary.pdf"
     c = canvas.Canvas(filename, pagesize=letter)
     y = 750
 
-    for line in text.split("\n"):
+    for line in summary_text.split("\n"):
         c.drawString(40, y, line[:90])
         y -= 15
         if y < 40:
@@ -297,37 +251,100 @@ def save_summary_pdf(text, filename="summary.pdf"):
             y = 750
 
     c.save()
+    return filename
 
 
-# ---------------- ROUTES ----------------
-@app.route("/", methods=["GET", "POST"])
-def index():
-    result = None
+# ---------------- MAIN PIPELINE ----------------
+def process(file, mode):
+    text = extract_text_from_pdf(file)
+    text = clean_text(text)
 
-    if request.method == "POST":
-        file = request.files["pdf"]
-        mode = request.form["mode"]
+    chunks = adaptive_chunking(text)
+    ranked = rank_chunks(chunks)
+    selected = select_chunks(ranked, mode)
 
-        if file:
-            path = "temp.pdf"
-            file.save(path)
+    chunk_summaries = summarize_chunks(selected, mode)
+    combined = " ".join(chunk_summaries)
 
-            text = extract_text_from_pdf(path)
-            text = clean_text(text)
+    final_summary = refine_summary(combined, mode)
+    title = generate_title(final_summary)
+    
+    points = extract_key_points_nltk(" ".join(selected), num_points=4)
 
-            result = advanced_summarization(text, mode)
+    # 🔥 SHORTEN EACH POINT
+    points = [p[:120] for p in points]
+    points_text = "\n• " + "\n• ".join(points)
+    
+    pdf_path = save_pdf(final_summary)
+    
 
-            save_summary_pdf(result["summary"])
-
-            os.remove(path)
-
-    return render_template("index.html", result=result)
-
-
-@app.route("/download")
-def download():
-    return send_file("summary.pdf", as_attachment=True)
+    return title,points_text, final_summary, pdf_path
 
 
-if __name__ == "__main__":
-    app.run(debug=True)
+# ---------------- PREMIUM UI ----------------
+with gr.Blocks() as app:
+    gr.Markdown("""
+    # 📄 Smart PDF Summarizer  
+    ### 🚀 AI-powered Document Understanding  
+
+    Upload any PDF and get:
+    - 📌 Title  
+    - 🔑 Key Insights  
+    - 📝 Clean Summary  
+    """)
+
+    with gr.Row():
+        file_input = gr.File(label="📂 Upload PDF", file_types=[".pdf"])
+        mode = gr.Radio(
+            ["short", "medium", "detailed"],
+            value="medium",
+            label="📊 Summary Depth"
+        )
+
+    submit = gr.Button("✨ Generate Summary")
+
+    with gr.Row():
+        title_box = gr.Textbox(label="📌 Title", placeholder="Title will appear here...")
+    
+    with gr.Row():
+        points_box = gr.Textbox(label="🔑 Key Points", placeholder="Key insights will appear here...")
+    
+    with gr.Row():
+        summary_box = gr.Textbox(label="📝 Summary", placeholder="Summary will appear here...")
+
+    with gr.Row():
+        download_file = gr.File(label="⬇️ Download Summary PDF", interactive=False)
+
+    with gr.Row():
+        copy_btn = gr.Button("📋 Copy Summary")
+
+    status = gr.Markdown("")
+
+    # -------- LOADING + OUTPUT --------
+    def run_pipeline(file, mode):
+        try:
+            if file is None:
+                return "", "", "", None, "❌ Please upload a PDF"
+
+            title, points, summary, pdf_path = process(file, mode)
+
+            return title, points, summary, pdf_path, "✅ Done!"
+
+        except Exception as e:
+            print("ERROR:", str(e))
+            return "Error", "Error", str(e), None, "❌ Failed"
+        
+    submit.click(
+        run_pipeline,
+        inputs=[file_input, mode],
+        outputs=[title_box, points_box, summary_box, download_file, status]
+    )
+
+    # -------- COPY FUNCTION --------
+    copy_btn.click(
+        fn=lambda x: x,
+        inputs=summary_box,
+        outputs=summary_box
+    )
+
+app.launch(theme=gr.themes.Soft(primary_hue="indigo"))
