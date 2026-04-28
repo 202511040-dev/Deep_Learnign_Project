@@ -218,6 +218,7 @@ def generate_title(text):
         inputs["input_ids"], 
         attention_mask=inputs.get("attention_mask"),
         max_length=20,
+        min_length=5,
         num_beams=2,
         early_stopping=True
     )
