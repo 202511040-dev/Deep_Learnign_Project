@@ -68,7 +68,30 @@ def clean_text(text):
 
 def adaptive_chunking(text):
     paragraphs = text.split("\n")
-    return [p.strip() for p in paragraphs if len(p.strip()) > 50]
+    paragraphs = [p.strip() for p in paragraphs if len(p.strip()) > 50]
+    
+    chunks = []
+    current_chunk = []
+    current_length = 0
+    max_tokens = 800
+
+    for para in paragraphs:
+        sentences = sent_tokenize(para)
+        for sentence in sentences:
+            sentence_length = len(tokenizer.encode(sentence, add_special_tokens=False))
+            if current_length + sentence_length > max_tokens and current_chunk:
+                chunks.append(" ".join(current_chunk))
+                overlap_sentences = current_chunk[-2:] if len(current_chunk) >= 2 else current_chunk
+                current_chunk = overlap_sentences
+                current_length = sum(len(tokenizer.encode(s, add_special_tokens=False)) for s in current_chunk)
+
+            current_chunk.append(sentence)
+            current_length += sentence_length
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    return chunks
 
 
 def rank_chunks(chunks):
@@ -119,11 +142,11 @@ def summarize_chunks(chunks, mode):
             inputs["input_ids"],
             max_length=max_len,
             min_length=min_len,
-            num_beams=6,
-            temperature=0.7,
-            top_k=50,
+            num_beams=4,
+            length_penalty=2.0,
             repetition_penalty=1.3,
-            no_repeat_ngram_size=3
+            no_repeat_ngram_size=3,
+            early_stopping=True
         )
 
         summaries.append(tokenizer.decode(ids[0], skip_special_tokens=True))
@@ -132,40 +155,42 @@ def summarize_chunks(chunks, mode):
 
 
 def refine_summary(text, mode):
-
     params = {
-        "short": (120, 40),
-        "medium": (250, 80),
-        "detailed": (400, 120)
+        "short": (120, 30),
+        "medium": (250, 60),
+        "detailed": (400, 80)
     }
-
     max_len, min_len = params[mode]
+    
+    # Dynamically adjust min_length to prevent hallucination on short texts
+    input_length = len(text.split())
+    if input_length < min_len:
+        min_len = max(5, input_length // 2)
 
-    inputs = tokenizer("summarize: " + text,
-                       return_tensors="pt",
-                       truncation=True,
-                       max_length=1024).to(device)
+    inputs = tokenizer("summarize: " + text, return_tensors="pt", truncation=True, max_length=1024).to(device)
 
     ids = model.generate(
         inputs["input_ids"],
         max_length=max_len,
         min_length=min_len,
-        num_beams=6,
+        num_beams=4,
+        length_penalty=2.0,
         repetition_penalty=1.2,
-        no_repeat_ngram_size=3
+        no_repeat_ngram_size=3,
+        early_stopping=True
     )
 
     return tokenizer.decode(ids[0], skip_special_tokens=True)
 
 
 def generate_title(text):
-    inputs = tokenizer("summarize: " + text,
-                       return_tensors="pt",
-                       truncation=True,
-                       max_length=512).to(device)
-
-    ids = model.generate(inputs["input_ids"], max_length=20)
-    return tokenizer.decode(ids[0], skip_special_tokens=True)
+    inputs = tokenizer("summarize: " + text, return_tensors="pt", truncation=True, max_length=512).to(device)
+    ids = model.generate(inputs["input_ids"], max_length=15, min_length=2, num_beams=4, early_stopping=True)
+    title = tokenizer.decode(ids[0], skip_special_tokens=True)
+    
+    # Strip dangling trailing words to prevent hard cut-offs
+    title = re.sub(r'\s+(and|or|the|in|with|a|an|of|,|:)$', '', title.strip(), flags=re.IGNORECASE)
+    return title.rstrip(".,;: ")
 
 
 
@@ -238,17 +263,49 @@ def extract_key_points_nltk(text, num_points=5):
     return selected
 
 
-def save_pdf(summary_text):
+def save_pdf(title, points_text, summary_text):
     filename = "summary.pdf"
     c = canvas.Canvas(filename, pagesize=letter)
     y = 750
 
-    for line in summary_text.split("\n"):
-        c.drawString(40, y, line[:90])
-        y -= 15
-        if y < 40:
-            c.showPage()
-            y = 750
+    def draw_text(text, is_bold=False):
+        nonlocal y
+        if is_bold:
+            c.setFont("Helvetica-Bold", 12)
+        else:
+            c.setFont("Helvetica", 11)
+            
+        for line in text.split("\n"):
+            # Simple text wrapping
+            words = line.split(" ")
+            current_line = ""
+            for word in words:
+                if len(current_line) + len(word) < 90:
+                    current_line += word + " "
+                else:
+                    c.drawString(40, y, current_line.strip())
+                    y -= 15
+                    if y < 40:
+                        c.showPage()
+                        y = 750
+                    current_line = word + " "
+            if current_line:
+                c.drawString(40, y, current_line.strip())
+                y -= 15
+                if y < 40:
+                    c.showPage()
+                    y = 750
+
+    draw_text("TITLE", is_bold=True)
+    draw_text(title)
+    y -= 20
+    
+    draw_text("KEY POINTS", is_bold=True)
+    draw_text(points_text.strip())
+    y -= 20
+    
+    draw_text("SUMMARY", is_bold=True)
+    draw_text(summary_text)
 
     c.save()
     return filename
@@ -271,11 +328,20 @@ def process(file, mode):
     
     points = extract_key_points_nltk(" ".join(selected), num_points=4)
 
-    # 🔥 SHORTEN EACH POINT
-    points = [p[:120] for p in points]
-    points_text = "\n• " + "\n• ".join(points)
-    
-    pdf_path = save_pdf(final_summary)
+    # 🔥 FORMAT POINTS CLEANLY
+    cleaned_points = []
+    for p in points:
+        if len(p) > 130:
+            # truncate at nearest space to avoid broken words
+            trunc = p[:130]
+            last_space = trunc.rfind(" ")
+            if last_space > -1:
+                trunc = trunc[:last_space]
+            p = trunc + "..."
+        cleaned_points.append(p)
+        
+    points_text = "\n• " + "\n• ".join(cleaned_points)
+    pdf_path = save_pdf(title, points_text, final_summary)
     
 
     return title,points_text, final_summary, pdf_path
@@ -315,9 +381,6 @@ with gr.Blocks() as app:
     with gr.Row():
         download_file = gr.File(label="⬇️ Download Summary PDF", interactive=False)
 
-    with gr.Row():
-        copy_btn = gr.Button("📋 Copy Summary")
-
     status = gr.Markdown("")
 
     # -------- LOADING + OUTPUT --------
@@ -340,11 +403,6 @@ with gr.Blocks() as app:
         outputs=[title_box, points_box, summary_box, download_file, status]
     )
 
-    # -------- COPY FUNCTION --------
-    copy_btn.click(
-        fn=lambda x: x,
-        inputs=summary_box,
-        outputs=summary_box
-    )
+
 
 app.launch(theme=gr.themes.Soft(primary_hue="indigo"))
