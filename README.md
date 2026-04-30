@@ -46,9 +46,10 @@ graph TD
     I --> K[Title Generation]
     F --> L[Key Point Extraction]
 
+
 ---
 
-## 🧠 Methodology
+# 🧠 Methodology
 
 ### 🔹 Extractive Phase
 - Document is split into chunks  
