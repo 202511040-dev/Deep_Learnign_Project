@@ -44,7 +44,7 @@ graph TD
     H --> I[Refinement Step]
     I --> J[Final Summary]
     I --> K[Title Generation]
-    F --> L[Key Point Extraction]\
+    F --> L[Key Point Extraction]
 
 ---
 
