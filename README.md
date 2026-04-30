@@ -1,36 +1,40 @@
+# 📄 Smart PDF Summarizer using Hybrid Extractive-Abstractive Deep Learning
 
-## Team Members:
-## Name:Patel Vatsal Sureshbhai
-## Student ID:202511040
-## Name:Shivang Desai
-## Student ID:202511034
+---
 
-
-
-# 📄 Adaptive PDF Summarization System using Deep Learning
+## 👥 Team Members
+- **Patel Vatsal Sureshbhai** (202511040)  
+- **Shivang Desai** (202511034)  
 
 ---
 
 ## 🚀 Project Overview
-This project aims to develop an end-to-end deep learning system capable of generating concise and meaningful summaries from long PDF documents. The system addresses the challenge of information overload by automatically extracting and condensing key insights from large textual data.
+This project presents an end-to-end intelligent PDF summarization system that generates structured outputs including a **title, key points, and summary** from long documents.
+
+The system uses a **hybrid extractive-abstractive pipeline**, combining traditional NLP techniques with deep learning models to ensure both **content relevance and readability**.
+
+It is deployed as a web application where users can upload PDFs and receive summaries instantly.
 
 ---
 
 ## 🎯 Objectives
-- Develop a transformer-based summarization system using a pretrained model (**BART**)
-- Fine-tune the model for abstractive text summarization
-- Handle long PDF documents beyond model token limits
-- Provide user-controlled summary lengths (short, medium, detailed)
-- Build an end-to-end pipeline for PDF upload and summary generation
+- Develop a robust PDF summarization system for long documents  
+- Combine extractive and abstractive techniques for better performance  
+- Handle noisy and unstructured PDF text  
+- Support multiple summary lengths (short, medium, detailed)  
+- Generate structured output (Title + Key Points + Summary)  
+- Deploy the system using a user-friendly interface  
 
 ---
 
 ## 🧠 Key Concepts Used
-- Transformer Architecture (Encoder-Decoder)
-- Abstractive Text Summarization
-- Transfer Learning & Fine-Tuning
-- Tokenization & Sequence Modeling
+- Transformer Architecture (BART)
+- Abstractive Summarization
+- Extractive Summarization (TF-IDF)
 - Hierarchical Summarization
+- Natural Language Processing (NLTK)
+- Tokenization and Text Preprocessing
+- PDF Text Extraction
 
 ---
 
@@ -39,7 +43,13 @@ This project aims to develop an end-to-end deep learning system capable of gener
 ```mermaid
 graph TD
     A[PDF Upload] --> B[Text Extraction]
-    B --> C[Adaptive Chunking]
-    C --> D[Chunk-wise Summarization using BART]
-    D --> E[Hierarchical Summarization]
-    E --> F[Final Summary Output]
+    B --> C[Text Cleaning]
+    C --> D[Adaptive Chunking]
+    D --> E[TF-IDF Ranking]
+    E --> F[Select Important Chunks]
+    F --> G[BART Summarization]
+    G --> H[Combine Summaries]
+    H --> I[Refinement Step]
+    I --> J[Final Summary]
+    I --> K[Title Generation]
+    F --> L[Key Point Extraction (NLTK)]
