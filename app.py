@@ -351,7 +351,6 @@ def process(file, mode):
 with gr.Blocks() as app:
     gr.Markdown("""
     # 📄 Smart PDF Summarizer  
-    ### 🚀 AI-powered Document Understanding  
 
     Upload any PDF and get:
     - 📌 Title  
