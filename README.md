@@ -8,33 +8,25 @@
 
 ---
 
-## 🚀 Project Overview
-This project presents an end-to-end intelligent PDF summarization system that generates structured outputs including a **title, key points, and summary** from long documents.
+## 🚀 Objective & Description
 
-The system uses a **hybrid extractive-abstractive pipeline**, combining traditional NLP techniques with deep learning models to ensure both **content relevance and readability**.
+The objective of this project is to build an intelligent system that can automatically generate structured summaries from PDF documents.
 
-It is deployed as a web application where users can upload PDFs and receive summaries instantly.
+The application:
+- Takes a PDF as input
+- Extracts and cleans text
+- Generates:
+  - 📌 Title
+  - 🔑 Key Points
+  - 📝 Summary
 
----
+The system uses a **Hybrid Extractive-Abstractive approach**, combining:
+- Extractive methods (TF-IDF, NLTK)
+- Abstractive methods (BART Transformer)
 
-## 🎯 Objectives
-- Develop a robust PDF summarization system for long documents  
-- Combine extractive and abstractive techniques for better performance  
-- Handle noisy and unstructured PDF text  
-- Support multiple summary lengths (short, medium, detailed)  
-- Generate structured output (Title + Key Points + Summary)  
-- Deploy the system using a user-friendly interface  
-
----
-
-## 🧠 Key Concepts Used
-- Transformer Architecture (BART)
-- Abstractive Summarization
-- Extractive Summarization (TF-IDF)
-- Hierarchical Summarization
-- Natural Language Processing (NLTK)
-- Tokenization and Text Preprocessing
-- PDF Text Extraction
+This ensures:
+- Important information is not lost
+- Output is readable and concise
 
 ---
 
@@ -52,4 +44,4 @@ graph TD
     H --> I[Refinement Step]
     I --> J[Final Summary]
     I --> K[Title Generation]
-    F --> L[Key Point Extraction (NLTK)]
+    F --> L[Key Point Extraction]
