@@ -85,8 +85,8 @@ Parallel: Key Point Extraction using NLTK
 ## 🛠️ Installation & Running the Application
 
 ### 1. Clone the Repository
-git clone https://github.com/your-username/your-repo-name.git  
-cd your-repo-name  
+git clone https://github.com/202511040-dev/Deep_Learnign_Project/  
+cd Deep_Learnign_Project
 
 ### 2. Create a Virtual Environment
 python -m venv venv  
