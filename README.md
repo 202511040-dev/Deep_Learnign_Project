@@ -140,18 +140,10 @@ DL_PROJECT/
 
 ## ⚠️ Limitations
 
-- Depends on PDF text extraction quality  
+- Depends on PDF text extraction quality and also the quality of PDF
 - TF-IDF does not capture deep semantic meaning  
 - Large models increase inference time  
-
----
-
-## 🚀 Future Improvements
-
-- Replace TF-IDF with embedding-based ranking  
-- Use Longformer (LED) for long documents  
-- Improve semantic understanding  
-- Enhance UI/UX  
+ 
 
 ---
 
