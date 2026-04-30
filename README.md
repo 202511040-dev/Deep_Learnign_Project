@@ -44,4 +44,55 @@ graph TD
     H --> I[Refinement Step]
     I --> J[Final Summary]
     I --> K[Title Generation]
-    F --> L[Key Point Extraction]
+    F --> L[Key Point Extraction]\
+
+---
+
+## 🧠 Methodology
+
+### 🔹 Extractive Phase
+- Document is split into chunks  
+- Important chunks selected using TF-IDF  
+
+### 🔹 Abstractive Phase
+- Selected chunks summarized using BART  
+- Combined and refined into final summary  
+
+### 🔹 Key Points Extraction
+- Extracted using NLTK sentence scoring  
+- Noise (tables, references) is removed  
+
+---
+
+## 📊 Results
+
+| Metric   | Baseline | Improved |
+|----------|---------|---------|
+| ROUGE-1  | 0.3651  | 0.3932  |
+| ROUGE-2  | 0.1605  | 0.1807  |
+| ROUGE-L  | 0.2752  | 0.2884  |
+
+### ✅ Observations
+- Improved content coverage  
+- Better readability and coherence  
+- Reduced redundancy  
+
+---
+
+## 🖥️ Features
+
+- 📂 Upload PDF  
+- 📊 Select summary type (short / medium / detailed)  
+- 📌 Generate Title  
+- 🔑 Extract Key Points  
+- 📝 Generate Summary  
+- 📥 Download summary as PDF  
+
+---
+
+## 🛠️ Installation & Running the Application
+
+### 1️⃣ Clone the Repository
+```bash
+git clone https://github.com/your-username/your-repo-name.git
+cd your-repo-name
