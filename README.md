@@ -157,6 +157,7 @@ DL_PROJECT/
 ## 🌐 Deployment
 
 The project is deployed using Hugging Face Spaces for real-time usage.
+LINK:https://huggingface.co/spaces/vatsal0025/DL_PROJECT_PDF_SUMMARIZER
 
 ---
 
